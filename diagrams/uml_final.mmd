@@ -1,0 +1,97 @@
+classDiagram
+    class CareTask {
+        -str name
+        -str category
+        -int duration
+        -str priority
+        -str preferred_time
+        -Pet pet
+        -bool completed
+        -str frequency
+        -str last_completed_on
+        -str due_date
+        +update_task()
+        +mark_complete(on_date)
+        +validate()
+        +priority_score()
+        +is_due_on(date_str)
+        +create_next_occurrence(from_date)
+    }
+
+    class Pet {
+        -str name
+        -str species
+        -str breed
+        -Owner owner
+        -list tasks
+        +add_task()
+        +remove_task()
+        +get_tasks()
+        +update_info()
+        +mark_task_complete(task_name, on_date)
+    }
+
+    class Owner {
+        -str name
+        -str available_start
+        -str available_end
+        -list preferences
+        -list pets
+        +add_pet()
+        +remove_pet()
+        +get_pets()
+        +get_all_tasks()
+        +get_tasks_by_pet(pet_name)
+        +get_tasks_by_status(completed)
+        +get_tasks_filtered(pet_name, completed, priority)
+        +set_availability()
+        +update_preferences()
+    }
+
+    class ScheduledTask {
+        -CareTask task
+        -str start_time
+        -str end_time
+        +__repr__()
+    }
+
+    class DailyPlan {
+        -Pet pet
+        -list scheduled_tasks
+        -list skipped_tasks
+        -str explanation
+        +add_task()
+        +skip_task()
+        +explain_plan()
+        +display_plan()
+    }
+
+    class Scheduler {
+        -Owner owner
+        -list tasks
+        -list scheduled_tasks
+        +load_tasks()
+        +sort_tasks()
+        +sort_by_time(tasks)
+        +filter_tasks(tasks, pet_name, completed)
+        +time_to_minutes(time_str)
+        +minutes_to_time(minutes)
+        +get_available_minutes()
+        +check_conflict(start_min, duration, occupied)
+        +expand_recurring_tasks(tasks, date_str)
+        +find_first_fit(duration, window_start, window_end, occupied)
+        +find_slot_for_task(task, window_start, window_end, occupied)
+        +sort_task_list(tasks)
+        +generate_plan(date_str)
+        +assign_times()
+        +detect_conflicts(plans)
+    }
+
+    Owner "1" o-- "0..*" Pet : owns
+    Pet "1" o-- "0..*" CareTask : has tasks
+    Pet --> Owner : belongs to
+    Scheduler --> Owner : schedules for
+    Scheduler --> DailyPlan : generates
+    DailyPlan "1" o-- "0..*" ScheduledTask : scheduled
+    DailyPlan "1" o-- "0..*" CareTask : skipped
+    ScheduledTask --> CareTask : wraps

@@ -136,6 +136,43 @@ if all_tasks:
 else:
     st.info("No tasks yet. Add one above.")
 
+st.markdown("### Task Explorer")
+st.caption("Use the scheduler's filtering and time-sorting helpers to inspect your task list.")
+
+if owner.get_pets():
+    filter_pet_options = ["All pets"] + [pet.name for pet in owner.get_pets()]
+    filter_pet = st.selectbox("Filter by pet", filter_pet_options)
+else:
+    filter_pet = "All pets"
+
+status_choice = st.selectbox("Filter by completion status", ["All", "Incomplete", "Complete"])
+
+scheduler = Scheduler(owner)
+status_value = {"All": None, "Incomplete": False, "Complete": True}[status_choice]
+filtered_tasks = scheduler.filter_tasks(
+    owner.get_all_tasks(),
+    pet_name=None if filter_pet == "All pets" else filter_pet,
+    completed=status_value,
+)
+sorted_filtered_tasks = scheduler.sort_by_time(filtered_tasks)
+
+if sorted_filtered_tasks:
+    task_view_rows = []
+    for task in sorted_filtered_tasks:
+        task_view_rows.append(
+            {
+                "pet": task.pet.name if task.pet else "-",
+                "task": task.name,
+                "preferred_time": task.preferred_time or "-",
+                "priority": task.priority,
+                "completed": task.completed,
+                "frequency": task.frequency,
+            }
+        )
+    st.table(task_view_rows)
+else:
+    st.info("No tasks match the current filters.")
+
 st.divider()
 
 st.subheader("Build Schedule")
@@ -147,7 +184,6 @@ if st.button("Generate schedule"):
     elif not owner.get_all_tasks():
         st.warning("Please add at least one task.")
     else:
-        scheduler = Scheduler(owner)
         plans = scheduler.generate_plan()
 
         st.success("Schedule generated.")
@@ -182,3 +218,11 @@ if st.button("Generate schedule"):
 
             with st.expander("Plan explanation"):
                 st.text(plan.display_plan())
+
+        conflict_warnings = scheduler.detect_conflicts(plans)
+        if conflict_warnings:
+            st.warning("Possible schedule conflicts detected. Review the warnings below.")
+            for warning in conflict_warnings:
+                st.warning(warning)
+        else:
+            st.success("No schedule conflicts detected.")
