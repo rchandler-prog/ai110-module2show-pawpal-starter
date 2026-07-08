@@ -1,0 +1,45 @@
+classDiagram
+    class Owner {
+        -str name
+        -str available_start
+        -str available_end
+        -list preferences
+        +set_availability()
+        +update_preferences()
+    }
+
+    class Pet {
+        -str name
+        -str species
+        -str breed
+        -Owner owner
+        +update_info()
+    }
+
+    class CareTask {
+        -str name
+        -str category
+        -int duration
+        -str priority
+        -str preferred_time
+        +update_task()
+        +validate()
+    }
+
+    class Scheduler {
+        -list tasks
+        -str available_start
+        -str available_end
+        +sort_tasks()
+        +check_conflict()
+        +generate_plan()
+        +assign_times()
+    }
+
+    Owner "1" o-- "0..*" Pet : owns
+    Pet --> Owner : belongs to
+    Owner "1" --> "0..*" CareTask : preferences
+    Pet "1" --> "0..*" CareTask : needs
+    Scheduler "1" --> "0..*" CareTask : schedules
+    Scheduler --> Owner : uses availability
+    Scheduler --> Pet : plans for

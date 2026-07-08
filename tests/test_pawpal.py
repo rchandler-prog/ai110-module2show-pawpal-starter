@@ -39,6 +39,21 @@ class TestCareTask:
         assert task.duration == 30
         assert task.priority == "high"
 
+    def test_daily_task_due_logic(self):
+        """Test that daily tasks are due unless completed today."""
+        task = CareTask(name="Feed", duration=10, priority="high", frequency="daily")
+        assert task.is_due_on("2026-07-07") is True
+        task.mark_complete(on_date="2026-07-07")
+        assert task.is_due_on("2026-07-07") is False
+        assert task.is_due_on("2026-07-08") is True
+
+    def test_weekly_task_due_logic(self):
+        """Test that weekly tasks become due after seven days."""
+        task = CareTask(name="Groom", duration=25, priority="medium", frequency="weekly")
+        task.mark_complete(on_date="2026-07-01")
+        assert task.is_due_on("2026-07-06") is False
+        assert task.is_due_on("2026-07-08") is True
+
 
 class TestPet:
     """Tests for Pet class."""
@@ -94,6 +109,26 @@ class TestPet:
         assert pet.name == "Mochi Jr"
         assert pet.breed == "Persian"
         assert pet.species == "cat"
+
+    def test_mark_task_complete_creates_next_daily_task(self):
+        """Test completing a daily task auto-creates the next occurrence."""
+        pet = Pet(name="Biscuit", species="dog")
+        pet.add_task(
+            CareTask(
+                name="Daily walk",
+                duration=30,
+                priority="high",
+                frequency="daily",
+            )
+        )
+
+        marked = pet.mark_task_complete("Daily walk", on_date="2026-07-07")
+        assert marked is True
+        assert len(pet.tasks) == 2
+        assert pet.tasks[0].completed is True
+        assert pet.tasks[1].name == "Daily walk"
+        assert pet.tasks[1].due_date == "2026-07-08"
+        assert pet.tasks[1].completed is False
 
 
 class TestOwner:
@@ -151,6 +186,38 @@ class TestOwner:
         owner.update_preferences(prefs)
         
         assert owner.preferences == prefs
+
+    def test_get_tasks_by_pet(self):
+        """Test filtering tasks by pet name."""
+        owner = Owner(name="Jordan")
+        dog = Pet(name="Biscuit", species="dog")
+        cat = Pet(name="Mochi", species="cat")
+        dog.add_task(CareTask(name="Walk", duration=30, priority="high"))
+        cat.add_task(CareTask(name="Feed", duration=10, priority="high"))
+        owner.add_pet(dog)
+        owner.add_pet(cat)
+
+        dog_tasks = owner.get_tasks_by_pet("Biscuit")
+        assert len(dog_tasks) == 1
+        assert dog_tasks[0].name == "Walk"
+
+    def test_get_tasks_by_status(self):
+        """Test filtering tasks by completion status."""
+        owner = Owner(name="Jordan")
+        pet = Pet(name="Biscuit", species="dog")
+        done = CareTask(name="Feed", duration=10, priority="high")
+        todo = CareTask(name="Walk", duration=20, priority="medium")
+        done.mark_complete(on_date="2026-07-07")
+        pet.add_task(done)
+        pet.add_task(todo)
+        owner.add_pet(pet)
+
+        completed = owner.get_tasks_by_status(True)
+        pending = owner.get_tasks_by_status(False)
+        assert len(completed) == 1
+        assert completed[0].name == "Feed"
+        assert len(pending) == 1
+        assert pending[0].name == "Walk"
 
 
 class TestScheduler:
@@ -231,6 +298,52 @@ class TestScheduler:
         assert scheduler.tasks[1] == task_med
         assert scheduler.tasks[2] == task_low
 
+    def test_sort_tasks_by_preferred_time(self):
+        """Test preferred-time tasks are ordered earlier than non-preferred tasks."""
+        owner = Owner(name="Jordan")
+        scheduler = Scheduler(owner)
+
+        task_no_pref = CareTask(name="Play", duration=20, priority="high")
+        task_pref_late = CareTask(name="Brush", duration=10, priority="low", preferred_time="09:00")
+        task_pref_early = CareTask(name="Meds", duration=5, priority="medium", preferred_time="08:15")
+
+        ordered = scheduler.sort_task_list([task_no_pref, task_pref_late, task_pref_early])
+        assert ordered[0] == task_pref_early
+        assert ordered[1] == task_pref_late
+        assert ordered[2] == task_no_pref
+
+    def test_sort_by_time_method(self):
+        """Test explicit sort_by_time() ordering in HH:MM format."""
+        owner = Owner(name="Jordan")
+        scheduler = Scheduler(owner)
+        t1 = CareTask(name="A", duration=5, priority="low", preferred_time="09:10")
+        t2 = CareTask(name="B", duration=5, priority="low", preferred_time="08:45")
+        t3 = CareTask(name="C", duration=5, priority="low")
+
+        ordered = scheduler.sort_by_time([t1, t2, t3])
+        assert [t.name for t in ordered] == ["B", "A", "C"]
+
+    def test_filter_tasks_method(self):
+        """Test scheduler-side filtering by pet and completion."""
+        owner = Owner(name="Jordan")
+        scheduler = Scheduler(owner)
+
+        dog = Pet(name="Biscuit", species="dog")
+        cat = Pet(name="Mochi", species="cat")
+        t1 = CareTask(name="Walk", duration=20, priority="high")
+        t2 = CareTask(name="Feed", duration=10, priority="high")
+        t3 = CareTask(name="Play", duration=10, priority="low")
+        t1.mark_complete(on_date="2026-07-07")
+
+        dog.add_task(t1)
+        dog.add_task(t2)
+        cat.add_task(t3)
+        tasks = dog.get_tasks() + cat.get_tasks()
+
+        dog_pending = scheduler.filter_tasks(tasks, pet_name="Biscuit", completed=False)
+        assert len(dog_pending) == 1
+        assert dog_pending[0].name == "Feed"
+
     def test_generate_plan_basic(self):
         """Test basic plan generation."""
         owner = Owner(name="Jordan", available_start="08:00", available_end="09:00")
@@ -273,6 +386,65 @@ class TestScheduler:
         assert len(plans) == 2
         assert plans[0].pet == pet1
         assert plans[1].pet == pet2
+
+    def test_generate_plan_respects_preferred_time_when_possible(self):
+        """Test preferred time is used if slot is available."""
+        owner = Owner(name="Jordan", available_start="08:00", available_end="10:00")
+        pet = Pet(name="Biscuit", species="dog")
+        pet.add_task(CareTask(name="Feed", duration=10, priority="high", preferred_time="08:30"))
+        owner.add_pet(pet)
+
+        scheduler = Scheduler(owner)
+        plans = scheduler.generate_plan()
+        assert plans[0].scheduled_tasks[0].start_time == "08:30"
+
+    def test_generate_plan_conflict_fallback_to_next_slot(self):
+        """Test conflicting preferred times use next available slot."""
+        owner = Owner(name="Jordan", available_start="08:00", available_end="09:00")
+        pet = Pet(name="Biscuit", species="dog")
+        pet.add_task(CareTask(name="Walk", duration=30, priority="high", preferred_time="08:00"))
+        pet.add_task(CareTask(name="Feed", duration=10, priority="high", preferred_time="08:00"))
+        owner.add_pet(pet)
+
+        scheduler = Scheduler(owner)
+        plans = scheduler.generate_plan()
+        scheduled = plans[0].scheduled_tasks
+        assert len(scheduled) == 2
+        assert scheduled[0].start_time == "08:00"
+        assert scheduled[1].start_time == scheduled[0].end_time
+
+    def test_generate_plan_skips_not_due_weekly_task(self):
+        """Test weekly task is skipped if completed within last seven days."""
+        owner = Owner(name="Jordan", available_start="08:00", available_end="09:00")
+        pet = Pet(name="Mochi", species="cat")
+        weekly = CareTask(name="Groom", duration=20, priority="medium", frequency="weekly")
+        weekly.mark_complete(on_date="2026-07-05")
+        pet.add_task(weekly)
+        owner.add_pet(pet)
+
+        scheduler = Scheduler(owner)
+        plans = scheduler.generate_plan(date_str="2026-07-07")
+        assert len(plans[0].scheduled_tasks) == 0
+        assert len(plans[0].skipped_tasks) == 0
+
+    def test_detect_conflicts_returns_warning(self):
+        """Test conflict detector returns warning messages for overlaps."""
+        owner = Owner(name="Jordan")
+        scheduler = Scheduler(owner)
+
+        pet1 = Pet(name="Biscuit", species="dog")
+        pet2 = Pet(name="Mochi", species="cat")
+        plan1 = DailyPlan(pet=pet1)
+        plan2 = DailyPlan(pet=pet2)
+
+        task1 = CareTask(name="Walk", duration=30, priority="high", pet=pet1)
+        task2 = CareTask(name="Feed", duration=15, priority="high", pet=pet2)
+        plan1.add_task(ScheduledTask(task=task1, start_time="08:00", end_time="08:30"))
+        plan2.add_task(ScheduledTask(task=task2, start_time="08:10", end_time="08:25"))
+
+        warnings = scheduler.detect_conflicts([plan1, plan2])
+        assert len(warnings) == 1
+        assert "Conflict:" in warnings[0]
 
     def test_daily_plan_display(self):
         """Test daily plan display/explanation."""
